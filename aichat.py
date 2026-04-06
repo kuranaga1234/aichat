@@ -1,10 +1,13 @@
 import os
 import argparse
+import base64
 from llama_cpp import Llama
 
 # --- 設定定数 ---
 USE_LOCAL_MODEL = True
 MODEL_DIR = "./models"
+IMAGE_OUTPUT_DIR = "./generated_images"
+
 MODELS = {
     # 大型モデル
     "qwen": {"name": "Qwen2.5-7B", "repo_id": "Bartowski/Qwen2.5-7B-Instruct-GGUF", "filename": "*Q4_K_M.gguf", "n_ctx": 8192},
@@ -15,14 +18,88 @@ MODELS = {
     "llama1b": {"name": "Llama-3.2-1B", "repo_id": "Bartowski/Llama-3.2-1B-Instruct-GGUF", "filename": "*Q4_K_M.gguf", "n_ctx": 32768}
 }
 
+# Stable Diffusion 設定
+SD_MODEL_ID = "runwayml/stable-diffusion-v1-5"
+SD_IMAGE_STEPS = 20
+SD_IMAGE_WIDTH = 512
+SD_IMAGE_HEIGHT = 512
+
+# コマンドプレフィックス
+IMAGE_GEN_PREFIX = "/image"      # 画像生成
+
+
+# ─────────────────────────────────────────────
+# Stable Diffusion（画像生成）
+# ─────────────────────────────────────────────
+def load_sd_pipeline():
+    try:
+        from diffusers import StableDiffusionPipeline
+        import torch
+        from pathlib import Path
+
+        print(f"--- Stable Diffusion ロード中: {SD_MODEL_ID} (CPU モード) ---")
+        print("    ※ 初回はモデルのダウンロードが発生します（約2〜4GB）")
+
+        # ローカルキャッシュディレクトリを設定
+        sd_cache_dir = os.path.join(MODEL_DIR, "stable-diffusion")
+        os.makedirs(sd_cache_dir, exist_ok=True)
+
+        pipe = StableDiffusionPipeline.from_pretrained(
+            SD_MODEL_ID,
+            torch_dtype=torch.float32,
+            safety_checker=None,
+            requires_safety_checker=False,
+            cache_dir=sd_cache_dir
+        )
+               
+        pipe = pipe.to("cpu")
+        pipe.enable_attention_slicing()
+        print("--- Stable Diffusion ロード完了 ---")
+        return pipe
+
+    except ImportError:
+        print("\n[エラー] diffusers または torch がインストールされていません。")
+        print("  pip install diffusers transformers torch accelerate")
+        return None
+
+
+def generate_image(pipe, prompt: str, save_dir: str):
+    if pipe is None:
+        print("[画像生成] Stable Diffusion が初期化されていません。")
+        return
+
+    import torch
+    from datetime import datetime
+
+    os.makedirs(save_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(save_dir, f"image_{timestamp}.png")
+
+    print(f"\n[画像生成] プロンプト: {prompt}")
+    print(f"[画像生成] 生成中... （CPU では数分かかります）")
+
+    try:
+        with torch.no_grad():
+            result = pipe(prompt=prompt, num_inference_steps=SD_IMAGE_STEPS,
+                          width=SD_IMAGE_WIDTH, height=SD_IMAGE_HEIGHT)
+        result.images[0].save(filepath)
+        print(f"[画像生成] 完了！保存先: {filepath}")
+    except Exception as e:
+        print(f"[画像生成] エラー: {e}")
+
+
+# ─────────────────────────────────────────────
+# メイン
+# ─────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Llama-cpp AI Chat with File Support")
+    parser = argparse.ArgumentParser(description="Llama-cpp AI Chat with Image Generation & Analysis")
     parser.add_argument("--model", type=str, default="qwen", choices=list(MODELS.keys()))
-    # ファイル指定用の引数を追加
     parser.add_argument("--file", type=str, help="読み込むファイルのパスを指定してください")
+    parser.add_argument("--enable-image", action="store_true",
+                        help="Stable Diffusion による画像生成を有効にする")
     args = parser.parse_args()
 
-    # ファイルの中身を読み取る
+    # ファイル読み込み
     file_content = ""
     if args.file:
         if os.path.exists(args.file):
@@ -35,32 +112,55 @@ def main():
         else:
             print(f"警告: ファイル '{args.file}' が見つかりません。")
 
+    # Stable Diffusion ロード
+    sd_pipe = None
+    if args.enable_image:
+        sd_pipe = load_sd_pipeline()
+
+    # テキストモデルロード
     selected = MODELS[args.model]
-    if not os.path.exists(MODEL_DIR): os.makedirs(MODEL_DIR)
+    if not os.path.exists(MODEL_DIR):
+        os.makedirs(MODEL_DIR)
 
-    # モデルの読み込み
     print(f"--- ロード中: {selected['name']} (n_ctx: {selected['n_ctx']}) ---")
-
     llm = Llama.from_pretrained(
         repo_id=selected["repo_id"],
         filename=selected["filename"],
         local_dir=MODEL_DIR,
         offline=USE_LOCAL_MODEL,
         verbose=False,
-        # 選択されたモデル固有の n_ctx を使用
         n_ctx=selected["n_ctx"],
         n_batch=512
     )
 
     history = []
-    print(f"--- {selected['name']} とのチャット開始 ---")
+    print(f"\n--- {selected['name']} とのチャット開始 ---")
+    if args.enable_image:
+        print(f"  {IMAGE_GEN_PREFIX} <英語プロンプト>        → 画像を生成")
+    else:
+        print(f"  画像生成: 無効（--enable-image で有効化）")
 
     while True:
-        user_input = input("\nあなた: ")
-        if user_input.lower() in ['exit', 'quit', '終了']: break
+        user_input = input("\nあなた: ").strip()
+        if not user_input:
+            continue
+        if user_input.lower() in ['exit', 'quit', '終了']:
+            break
 
+        # ===== 画像生成コマンド =====
+        if user_input.startswith(IMAGE_GEN_PREFIX):
+            if not args.enable_image:
+                print(f"[画像生成] 無効です。--enable-image を付けて起動してください。")
+                continue
+            prompt = user_input[len(IMAGE_GEN_PREFIX):].strip()
+            if not prompt:
+                print(f"例: {IMAGE_GEN_PREFIX} a beautiful mountain landscape at sunset")
+                continue
+            generate_image(sd_pipe, prompt, IMAGE_OUTPUT_DIR)
+            continue
+
+        # ===== 通常チャット =====
         prompt = user_input
-        # 初回のみ、ファイルの中身をコンテキストとして注入
         if len(history) == 0:
             instruction = "あなたは優秀なアシスタントです。提供されたファイルの内容を元に回答してください。\n\n"
             if file_content:
@@ -71,16 +171,14 @@ def main():
         history.append({"role": "user", "content": prompt})
 
         try:
-            response = llm.create_chat_completion(
-                messages=history,
-                max_tokens=512  # 応答を最大512トークン（日本語で約400文字程度）に制限
-                )
+            response = llm.create_chat_completion(messages=history, max_tokens=512)
             ai_answer = response["choices"][0]["message"]["content"]
             print(f"\nAI ({selected['name']}): {ai_answer}")
             history.append({"role": "assistant", "content": ai_answer})
         except Exception as e:
             print(f"\nエラーが発生しました: {e}")
             break
+
 
 if __name__ == "__main__":
     main()

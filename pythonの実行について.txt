@@ -37,3 +37,18 @@ python aichat.py --model gemma --file dataset.jsonl
 python aichat.py --model llama3b --file dataset.jsonl
 python aichat.py --model llama1b --file dataset.jsonl
 
+#画像生成を有効
+python aichat.py --enable-image
+
+# 画像分析のみ有効
+python aichat.py --enable-vision
+
+# 画像生成＋分析の両方有効
+python aichat.py --enable-image --enable-vision
+
+-------------------
+
+
+
+
+
