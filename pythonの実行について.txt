@@ -1,0 +1,39 @@
+c:
+cd \MySources\Pythonルート\QAFinder
+(.venv) C:\MySources\Pythonルート\QAFinder>.venv\Scripts\activate
+(.venv) C:\MySources\Pythonルート\QAFinder>python.exe qafinder.py
+
+
+----------------------------------------------------------------------------
+cd C:\MySources\Pythonルート\AIChat\
+.venv\Scripts\activate
+
+#VisualStudioのビルドツールをダウンロード＆インストールする
+https://visualstudio.microsoft.com/ja/visual-cpp-build-tools/
+	「C++ によるデスクトップ開発」
+		右側の詳細オプションで「MSVC v143...」や「Windows 11 (または 10) SDK」が選択されていることを確認します
+	Windowsを再起動
+
+#仮想環境の作成
+python -m venv .venv
+
+# pipのバージョンアップ確認
+python -m pip install --upgrade pip
+
+# pip install llama-cpp-python --no-cache-dir --build ./tmp
+
+
+
+set TMP=C:\Temp
+set TEMP=C:\Temp
+mkdir C:\Temp
+pip install llama-cpp-python --no-cache-dir
+pip install huggingface-hub
+
+
+python aichat.py --model qwen --file dataset.jsonl
+python aichat.py --model elyza --file dataset.jsonl
+python aichat.py --model gemma --file dataset.jsonl
+python aichat.py --model llama3b --file dataset.jsonl
+python aichat.py --model llama1b --file dataset.jsonl
+
