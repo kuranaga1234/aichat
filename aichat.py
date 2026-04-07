@@ -23,6 +23,7 @@ SD_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 SD_IMAGE_STEPS = 20
 SD_IMAGE_WIDTH = 512
 SD_IMAGE_HEIGHT = 512
+LORA_DIR = "./models/lora"  # LoRAファイルの保存ディレクトリ
 
 # コマンドプレフィックス
 IMAGE_GEN_PREFIX = "/image"      # 画像生成
@@ -54,6 +55,23 @@ def load_sd_pipeline():
                
         pipe = pipe.to("cpu")
         pipe.enable_attention_slicing()
+        
+        # LoRA ウェイトを読み込む
+        if os.path.exists(LORA_DIR):
+            lora_files = list(Path(LORA_DIR).glob("*.safetensors")) + list(Path(LORA_DIR).glob("*.pt"))
+            if lora_files:
+                lora_path = str(lora_files[0])  # 最初のLoRAファイルを使用
+                try:
+                    print(f"[LoRA] ロード中: {os.path.basename(lora_path)}")
+                    pipe.load_lora_weights(lora_path)
+                    print(f"[LoRA] ロード完了: {os.path.basename(lora_path)}")
+                except Exception as e:
+                    print(f"[LoRA] ロード失敗: {e}")
+            else:
+                print(f"[LoRA] {LORA_DIR} にLoRAファイルが見つかりません。")
+        else:
+            print(f"[LoRA] ディレクトリが見つかりません: {LORA_DIR}")
+        
         print("--- Stable Diffusion ロード完了 ---")
         return pipe
 
