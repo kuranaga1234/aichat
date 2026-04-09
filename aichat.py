@@ -26,9 +26,16 @@ SD_IMAGE_WIDTH = 512
 SD_IMAGE_HEIGHT = 512
 LORA_DIR = "./models/lora"  # LoRAファイルの保存ディレクトリ
 
+# FLUX 設定(マシンの性能が追い付いていないので使えない)
+FLUX_MODEL_ID = "black-forest-labs/FLUX.1-schnell"
+FLUX_CACHE_DIR = os.path.join(MODEL_DIR, "flux-schnell")
+FLUX_IMAGE_STEPS = 4       # schnell は少ステップで高品質
+FLUX_IMAGE_WIDTH = 512
+FLUX_IMAGE_HEIGHT = 512
+
 # コマンドプレフィックス
 IMAGE_GEN_PREFIX = "/image"      # 画像生成
-
+FLUX_GEN_PREFIX  = "/flux"   # ← 追加
 
 # ─────────────────────────────────────────────
 # Stable Diffusion（画像生成）
@@ -129,6 +136,82 @@ def generate_image(pipe, prompt: str, save_dir: str, negative_prompt: str = ""):
     except Exception as e:
         print(f"[画像生成] エラー: {e}")
 
+def load_flux_pipeline():
+    try:
+        from diffusers import FluxPipeline
+        import torch
+
+        os.makedirs(FLUX_CACHE_DIR, exist_ok=True)
+
+        if torch.cuda.is_available():
+            dtype = torch.bfloat16
+            device = "cuda"
+            print("--- FLUX.1-schnell ロード中 (GPU / bfloat16) ---")
+        else:
+            dtype = torch.float32
+            device = "cpu"
+            print("--- FLUX.1-schnell ロード中 (CPU / float32) ---")
+            print("    ※ CPU での推論は非常に時間がかかります（30分以上の場合あり）")
+
+        print("    ※ 初回はモデルのダウンロードが発生します（約 24GB）")
+
+        # HF_TOKEN 環境変数からトークンを取得
+        hf_token = os.environ.get("HF_TOKEN", None)
+        
+        pipe = FluxPipeline.from_pretrained(
+            FLUX_MODEL_ID,
+            torch_dtype=dtype,
+            cache_dir=FLUX_CACHE_DIR,
+            token=hf_token,
+        )
+        pipe = pipe.to(device)
+
+        if device == "cpu":
+            pipe.enable_attention_slicing()
+        elif torch.cuda.get_device_properties(0).total_memory < 16 * 1024 ** 3:
+            pipe.enable_sequential_cpu_offload()
+
+        print("--- FLUX.1-schnell ロード完了 ---")
+        return pipe
+
+    except ImportError:
+        print("\n[エラー] diffusers または torch がインストールされていません。")
+        print("  pip install diffusers transformers torch accelerate sentencepiece")
+        return None
+    except Exception as e:
+        print(f"\n[FLUX ロードエラー] {e}")
+        return None
+
+
+def generate_flux_image(pipe, prompt: str, save_dir: str):
+    """FLUX は negative_prompt 非対応"""
+    if pipe is None:
+        print("[FLUX] パイプラインが初期化されていません。")
+        return
+
+    import torch
+    from datetime import datetime
+
+    os.makedirs(save_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(save_dir, f"flux_{timestamp}.png")
+
+    print(f"\n[FLUX] プロンプト: {prompt}")
+    print(f"[FLUX] 生成中... （ステップ数: {FLUX_IMAGE_STEPS}）")
+
+    try:
+        with torch.no_grad():
+            result = pipe(
+                prompt=prompt,
+                num_inference_steps=FLUX_IMAGE_STEPS,
+                width=FLUX_IMAGE_WIDTH,
+                height=FLUX_IMAGE_HEIGHT,
+                guidance_scale=0.0,   # schnell は CFG なし
+            )
+        result.images[0].save(filepath)
+        print(f"[FLUX] 完了！保存先: {filepath}")
+    except Exception as e:
+        print(f"[FLUX] 生成エラー: {e}")
 
 # ─────────────────────────────────────────────
 # メイン
@@ -138,9 +221,11 @@ def main():
     parser.add_argument("--model", type=str, default="qwen", choices=list(MODELS.keys()))
     parser.add_argument("--file", type=str, help="読み込むファイルのパスを指定してください")
     parser.add_argument("--enable-image", action="store_true",
-                        help="Stable Diffusion による画像生成を有効にする")
+                    help="Stable Diffusion による画像生成を有効にする")
     parser.add_argument("--enable-chilloutmix", action="store_true",
-                        help="chilloutmix_NiPrunedFp32Fixを読み込む");
+                    help="chilloutmix_NiPrunedFp32Fixを読み込む");
+    parser.add_argument("--enable-flux", action="store_true",
+                    help="FLUX.1-schnell による画像生成を有効にする（初回約 24GB DL）")
     args = parser.parse_args()
 
     # ファイル読み込み
@@ -163,6 +248,10 @@ def main():
     if args.enable_chilloutmix:
         sd_pipe = load_sd_pipeline(False)
         args.enable_image = True
+    
+    flux_pipe = None
+    if args.enable_flux:
+        flux_pipe = load_flux_pipeline()
 
     # テキストモデルロード
     selected = MODELS[args.model]
@@ -185,6 +274,8 @@ def main():
     if args.enable_image:
         print(f"  {IMAGE_GEN_PREFIX} <英語プロンプト>                              → 画像を生成")
         print(f"  {IMAGE_GEN_PREFIX} <英語プロンプト> --neg <ネガティブプロンプト>  → ネガティブプロンプト付きで生成")
+    elif args.enable_flux:
+        print(f"  {FLUX_GEN_PREFIX} <英語プロンプト>  → FLUX.1-schnell で画像生成")
     else:
         print(f"  画像生成: 無効（--enable-image で有効化）")
 
@@ -215,6 +306,16 @@ def main():
                 prompt = body
                 negative_prompt = ""
             generate_image(sd_pipe, prompt, IMAGE_OUTPUT_DIR, negative_prompt)
+            continue
+        elif user_input.startswith(FLUX_GEN_PREFIX):
+            if not args.enable_flux:
+                print(f"[FLUX] 無効です。--enable-flux を付けて起動してください。")
+                continue
+            body = user_input[len(FLUX_GEN_PREFIX):].strip()
+            if not body:
+                print(f"例: {FLUX_GEN_PREFIX} a serene Japanese garden in golden hour light")
+                continue
+            generate_flux_image(flux_pipe, body, IMAGE_OUTPUT_DIR)
             continue
 
         # ===== 通常チャット =====
