@@ -10,7 +10,7 @@ IMAGE_OUTPUT_DIR = "./generated_images"
 
 MODELS = {
     # 大型モデル
-    "qwen": {"name": "Qwen2.5-7B", "repo_id": "Bartowski/Qwen2.5-7B-Instruct-GGUF", "filename": "*Q4_K_M.gguf", "n_ctx": 8192},
+    "qwen": {"name": "Qwen2.5-7B", "repo_id": "Bartowski/Qwen2.5-7B-Instruct-GGUF", "filename": "*Q4_K_M.gguf", "n_ctx": 4096},
     "gemma": {"name": "Gemma-2-9B", "repo_id": "Bartowski/gemma-2-9b-it-GGUF", "filename": "*Q4_K_M.gguf", "n_ctx": 4096},
     "elyza": {"name": "Llama-3-ELYZA-JP-8B", "repo_id": "elyza/Llama-3-ELYZA-JP-8B-GGUF", "filename": "Llama-3-ELYZA-JP-8B-q4_k_m.gguf", "n_ctx": 4096},
     # 軽量モデル
@@ -20,6 +20,7 @@ MODELS = {
 
 # Stable Diffusion 設定
 SD_MODEL_ID = "runwayml/stable-diffusion-v1-5"
+SD_MODEL_PATH = "./models/chilloutmix_NiPrunedFp32Fix.safetensors"
 SD_IMAGE_STEPS = 20
 SD_IMAGE_WIDTH = 512
 SD_IMAGE_HEIGHT = 512
@@ -32,26 +33,40 @@ IMAGE_GEN_PREFIX = "/image"      # 画像生成
 # ─────────────────────────────────────────────
 # Stable Diffusion（画像生成）
 # ─────────────────────────────────────────────
-def load_sd_pipeline():
+def load_sd_pipeline(is_default):
     try:
         from diffusers import StableDiffusionPipeline
         import torch
         from pathlib import Path
 
-        print(f"--- Stable Diffusion ロード中: {SD_MODEL_ID} (CPU モード) ---")
-        print("    ※ 初回はモデルのダウンロードが発生します（約2〜4GB）")
+        if is_default:
+            print(f"--- Stable Diffusion ロード中: {SD_MODEL_ID} (CPU モード) ---")
+            print("    ※ 初回はモデルのダウンロードが発生します（約2〜4GB）")
 
-        # ローカルキャッシュディレクトリを設定
-        sd_cache_dir = os.path.join(MODEL_DIR, "stable-diffusion")
-        os.makedirs(sd_cache_dir, exist_ok=True)
+            # ローカルキャッシュディレクトリを設定
+            sd_cache_dir = os.path.join(MODEL_DIR, "stable-diffusion")
+            os.makedirs(sd_cache_dir, exist_ok=True)
 
-        pipe = StableDiffusionPipeline.from_pretrained(
-            SD_MODEL_ID,
-            torch_dtype=torch.float32,
-            safety_checker=None,
-            requires_safety_checker=False,
-            cache_dir=sd_cache_dir
-        )
+            pipe = StableDiffusionPipeline.from_pretrained(
+                SD_MODEL_ID,
+                torch_dtype=torch.float32,
+                safety_checker=None,
+                requires_safety_checker=False,
+                cache_dir=sd_cache_dir
+            )
+        else:
+            print(f"--- Stable Diffusion ロード中: {SD_MODEL_PATH} ---")
+
+            # ローカルキャッシュディレクトリを設定
+            sd_cache_dir = os.path.join(MODEL_DIR, "stable-diffusion")
+            os.makedirs(sd_cache_dir, exist_ok=True)
+
+            pipe = StableDiffusionPipeline.from_single_file(
+                SD_MODEL_PATH,
+                torch_dtype=torch.float32,
+                safety_checker=None,
+                requires_safety_checker=False,
+            )
                
         pipe = pipe.to("cpu")
         pipe.enable_attention_slicing()
@@ -81,7 +96,7 @@ def load_sd_pipeline():
         return None
 
 
-def generate_image(pipe, prompt: str, save_dir: str):
+def generate_image(pipe, prompt: str, save_dir: str, negative_prompt: str = ""):
     if pipe is None:
         print("[画像生成] Stable Diffusion が初期化されていません。")
         return
@@ -94,12 +109,21 @@ def generate_image(pipe, prompt: str, save_dir: str):
     filepath = os.path.join(save_dir, f"image_{timestamp}.png")
 
     print(f"\n[画像生成] プロンプト: {prompt}")
+    if negative_prompt:
+        print(f"[画像生成] ネガティブプロンプト: {negative_prompt}")
     print(f"[画像生成] 生成中... （CPU では数分かかります）")
 
     try:
         with torch.no_grad():
-            result = pipe(prompt=prompt, num_inference_steps=SD_IMAGE_STEPS,
-                          width=SD_IMAGE_WIDTH, height=SD_IMAGE_HEIGHT)
+            kwargs = dict(
+                prompt=prompt,
+                num_inference_steps=SD_IMAGE_STEPS,
+                width=SD_IMAGE_WIDTH,
+                height=SD_IMAGE_HEIGHT,
+            )
+            if negative_prompt:
+                kwargs["negative_prompt"] = negative_prompt
+            result = pipe(**kwargs)
         result.images[0].save(filepath)
         print(f"[画像生成] 完了！保存先: {filepath}")
     except Exception as e:
@@ -115,6 +139,8 @@ def main():
     parser.add_argument("--file", type=str, help="読み込むファイルのパスを指定してください")
     parser.add_argument("--enable-image", action="store_true",
                         help="Stable Diffusion による画像生成を有効にする")
+    parser.add_argument("--enable-chilloutmix", action="store_true",
+                        help="chilloutmix_NiPrunedFp32Fixを読み込む");
     args = parser.parse_args()
 
     # ファイル読み込み
@@ -133,7 +159,10 @@ def main():
     # Stable Diffusion ロード
     sd_pipe = None
     if args.enable_image:
-        sd_pipe = load_sd_pipeline()
+        sd_pipe = load_sd_pipeline(True)
+    if args.enable_chilloutmix:
+        sd_pipe = load_sd_pipeline(False)
+        args.enable_image = True
 
     # テキストモデルロード
     selected = MODELS[args.model]
@@ -154,7 +183,8 @@ def main():
     history = []
     print(f"\n--- {selected['name']} とのチャット開始 ---")
     if args.enable_image:
-        print(f"  {IMAGE_GEN_PREFIX} <英語プロンプト>        → 画像を生成")
+        print(f"  {IMAGE_GEN_PREFIX} <英語プロンプト>                              → 画像を生成")
+        print(f"  {IMAGE_GEN_PREFIX} <英語プロンプト> --neg <ネガティブプロンプト>  → ネガティブプロンプト付きで生成")
     else:
         print(f"  画像生成: 無効（--enable-image で有効化）")
 
@@ -170,11 +200,21 @@ def main():
             if not args.enable_image:
                 print(f"[画像生成] 無効です。--enable-image を付けて起動してください。")
                 continue
-            prompt = user_input[len(IMAGE_GEN_PREFIX):].strip()
-            if not prompt:
+            body = user_input[len(IMAGE_GEN_PREFIX):].strip()
+            if not body:
                 print(f"例: {IMAGE_GEN_PREFIX} a beautiful mountain landscape at sunset")
+                print(f"     ネガティブプロンプト指定: {IMAGE_GEN_PREFIX} <プロンプト> --neg <ネガティブプロンプト>")
                 continue
-            generate_image(sd_pipe, prompt, IMAGE_OUTPUT_DIR)
+            # --neg オプションを分割
+            neg_sep = " --neg "
+            if neg_sep in body:
+                parts = body.split(neg_sep, 1)
+                prompt = parts[0].strip()
+                negative_prompt = parts[1].strip()
+            else:
+                prompt = body
+                negative_prompt = ""
+            generate_image(sd_pipe, prompt, IMAGE_OUTPUT_DIR, negative_prompt)
             continue
 
         # ===== 通常チャット =====
