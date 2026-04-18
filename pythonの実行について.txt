@@ -1,7 +1,22 @@
+Windows:
 c:
 cd \MySources\Pythonルート\QAFinder
 (.venv) C:\MySources\Pythonルート\QAFinder>.venv\Scripts\activate
 (.venv) C:\MySources\Pythonルート\QAFinder>python.exe qafinder.py
+
+Linux:
+cd /media/kura/Windows11Pro/MySources/Pythonルート/AIChat
+# 仮想環境を有効化
+source /media/kura/Windows11Pro/MySources/Pythonルート/AIChat/.venv-1/bin/activate
+
+# Gemma-4をマルチモーダルで実行
+python aichat.py --model gemma4-multi
+
+# Gemma-4をテキストモードで実行
+python aichat.py --model gemma4-text
+
+# チャット中のコマンド
+/analyze ./photo.png この写真について説明してください
 
 
 ----------------------------------------------------------------------------
@@ -39,16 +54,9 @@ python aichat.py --model llama1b --file dataset.jsonl
 
 #画像生成を有効
 python aichat.py --enable-image
+python aichat.py --model llama1b --enable-chilloutmix
 
-# 画像分析のみ有効
-python aichat.py --enable-vision
-
-# 画像生成＋分析の両方有効
-python aichat.py --enable-image --enable-vision
 
 -------------------
-
-
-
 
 
