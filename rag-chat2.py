@@ -35,13 +35,27 @@ REJECT_WORDS = ["お答えできません", "申し訳ありません", "回答�
 # ==================================================
 def normalize_text(text: str) -> str:
     """テキストの正規化 """
+    # NFKCで半角カナを全角カナへ、かつ全角英数を半角英数へ一旦統一
     text = unicodedata.normalize("NFKC", text)
+    
+    # 半角文字（英数字・記号 0x21-0x7E）を全角（0xFF01-0xFF5E）に変換
+    # 半角スペース（0x20）も全角スペース（\u3000）に変換
+    text = "".join(
+        chr(ord(c) + 0xfee0) if 0x21 <= ord(c) <= 0x7E else
+        "\u3000" if c == " " else c
+        for c in text
+    )
+    
     # カタカナをひらがなに変換
     text = "".join(
         chr(ord(c) - 0x60) if "\u30a1" <= c <= "\u30f6" else c for c in text
     )
+
+    # 英字をすべて小文字に変換
     text = text.lower()
-    text = re.sub(r"\s+", " ", text)
+
+    # 連続する全角空白を1つにまとめる
+    text = re.sub(r"[\s\u3000]+", "\u3000", text)
     return text.strip()
 
 
@@ -52,7 +66,7 @@ def hash6(text: str) -> int:
 
 
 def recursive_split(text: str, size=DIV_TOKEN_SIZE, overlap=DIV_TOKEN_OVERLAP):
-    """再帰的分割（設計書の400文字/50文字重なり） """
+    """再帰的分割 """
     if len(text) <= size:
         return [text]
 
@@ -204,14 +218,16 @@ def main():
     ap.add_argument("--modelv", default="small", choices=["small", "base"], help="Embeddingモデル")
     args = ap.parse_args()
 
+    llm = None
+
     # --- DB登録モード ---
     if args.regdb or args.upddb:
         print("Initializing LLM for Summarization...")
         llm = Llama.from_pretrained(
-            repo_id="Bartowski/Llama-3.2-3B-Instruct-GGUF",
+            repo_id="Bartowski/gemma-2-2b-it-GGUF",
             filename="*Q4_K_M.gguf",
             local_dir=MODEL_DIR,
-            n_ctx=2048
+            n_ctx=4096
         )
         vdb = VectorDB(args.modelv)
         if args.regdb:
@@ -220,17 +236,19 @@ def main():
         else:
             vdb.register(llm, args.upddb, update=True)
         print("DB処理が完了しました。")
-        return
 
     # --- チャットモード ---
-    print(f"Loading Chat LLM ({args.model})...")
-    # 設計書のモデル指定に合わせてロード（ここではgemma2を例に）
-    llm = Llama.from_pretrained(
-        repo_id="Bartowski/gemma-2-2b-it-GGUF",
-        filename="*Q4_K_M.gguf",
-        local_dir=MODEL_DIR,
-        n_ctx=4096
-    )
+    if llm is None:
+        print(f"Loading Chat LLM ({args.model})...")
+        # 設計書のモデル指定に合わせてロード（ここではgemma2を例に）
+        llm = Llama.from_pretrained(
+            repo_id="Bartowski/gemma-2-2b-it-GGUF",
+            filename="*Q4_K_M.gguf",
+            local_dir=MODEL_DIR,
+            n_ctx=4096
+        )
+    else:
+        print("Using the already loaded LLM for Chat...")
 
     # システムプロンプトの読み込み 
     system_instruction = "あなたは優秀なアシスタントです。"
