@@ -50,7 +50,7 @@ CATEGORY_KEYWORDS = {
 MODELS = {
     # 大型モデル
     "gemma": {"name": "Gemma-2-9B", "repo_id": "Bartowski/gemma-2-9b-it-GGUF", "filename": "*Q4_K_M.gguf", "n_ctx": 4096, "type": "llama_cpp", "enable_rag": True},
-    "gemma4-text": {"name": "Gemma-4-E4B-GGUF", "filename": "google_gemma-4-E4B-it-Q4_K_M.gguf", "n_ctx": 4096, "type": "llama_cpp", "enable_rag": False},
+    "gemma4-text": {"name": "Gemma-4-E4B-GGUF", "filename": "google_gemma-4-E4B-it-Q4_K_M.gguf", "n_ctx": 16384, "type": "llama_cpp", "enable_rag": False},
     "gemma4-rag": {"name": "Gemma-4-E4B-GGUF（RAG有効）", "filename": "google_gemma-4-E4B-it-Q4_K_M.gguf", "n_ctx": 4096, "type": "llama_cpp", "enable_rag": True},
     "elyza": {"name": "Llama-3-ELYZA-JP-8B", "repo_id": "elyza/Llama-3-ELYZA-JP-8B-GGUF", "filename": "Llama-3-ELYZA-JP-8B-q4_k_m.gguf", "n_ctx": 4096, "type": "llama_cpp", "enable_rag": True},
     # 軽量モデル
@@ -386,27 +386,26 @@ def main():
         if len(history) == 0:
             # 初回のみシステムプロンプトを設定
             instruction = "あなたは優秀なアシスタントです。"
-
-            # RAGコンテキストを追加
-            rag_context = ""
             if vdb:
-                rag_context = vdb.format_context(user_input)
-            
+                instruction += " ユーザーからの質問に対して、関連する情報があれば提供してください。関連する情報がない場合は「関連する情報が見つかりませんでした」と応答してください。"
+
             # ファイルコンテキストを追加
             file_context = ""
             if file_content:
                 file_context = f"\n[提供されたファイルの内容]:\n{file_content}\n"
-            
-            # 総合プロンプト
-            if vdb:
-                instruction += " ユーザーからの質問に対して、関連する情報があれば提供してください。関連する情報がない場合は「関連する情報が見つかりませんでした」と応答してください。"
-            prompt = (
-                f"{instruction}\n"
-                f"{rag_context}"
-                f"{file_context}"
-                f"\n[ユーザーの質問]: {user_input}"
-            )
-            print(f"\n--- プロンプト ---\n{prompt}\n--- ---")
+
+        # RAGコンテキストを追加
+        rag_context = ""
+        if vdb:
+            rag_context = vdb.format_context(user_input)
+        # 総合プロンプト
+        prompt = (
+            f"{instruction}\n"
+            f"{rag_context}"
+            f"{file_context}"
+            f"\n[ユーザーの質問]: {user_input}"
+        )
+        print(f"\n--- プロンプト ---\n{prompt}\n--- ---")
 
         history.append({"role": "user", "content": prompt})
 
