@@ -1,0 +1,291 @@
+
+高知能のカギは「弱いつながり」にあった――「つながるほど賢い」わけではない
+https://nazology.kusuguru.co.jp/archives/199499
+
+
+創造的な人は「意味の遠い単語を組み合わせる」のが得意な傾向
+https://nazology.kusuguru.co.jp/archives/93854
+
+
+
+
+
+
+
+
+1ページ目の内容のみ取得できましたが、要旨は十分にまとまっているため以下に要約します。
+
+ノートルダム大学などの研究チームが、健康な成人831人の脳画像と知能テストの結果を分析したところ、
+知能の高さは特定の一つの脳領域や回路によって決まるのではないことが分かりました。
+脳全体の配線パターンを見た方が、単一回路を見るよりも知能スコアをよく予測できたのです。
+
+さらに興味深いのは、つながり方の「質」です。知能の高い人の脳は、近い場所同士は強い結びつきを持つ一方、
+遠く離れた領域同士は「弱いつながり」で結ばれていました。しかもこの弱いつながりが遠くまで届くほど、
+知能との相関が強くなっていたといいます。研究チームは、こうした一見頼りない「弱い橋」こそが、異なる機能を担う脳領域同士を結び、
+新しい問題に応じて柔軟に協力相手を切り替える役割を果たしていると考えています。
+研究は2026年1月にNature Communications誌に掲載されました。
+
+
+
+創造性、特に「発散的思考」（自由な発想を広げる能力）は、これまで客観的な測定が非常に難しいとされてきました。
+既存のテストでは結果にばらつきが大きく、精度に課題があったのです。
+
+そこでハーバード大学の研究者たちは、発散的思考の高い人は物事を意外な形で結びつけるのが得意だという考えをもとに、
+新しい測定法を開発しました。
+それが「意味のできるだけ離れた名詞を10個挙げてもらう」というシンプルなテスト（DAT：Divergent Association Task）です。
+98か国、8000人以上を対象に実施され、採点には人間の主観を排除するためAIが用いられました。
+このAIは大量の文章を学習しており、「犬と猫」よりも「犬と本」の方が意味的に離れていると判断できるほど精度が高いといいます。
+
+この研究は2021年6月にPNAS誌へ掲載され、DATは従来のテストよりも結果のばらつきが少なく、
+優れた創造性の指標になることが示されました。誰でも気軽に自分の創造性を測れる点も注目されています。
+
+
+
+
+
+
+
+「意味のできるだけ離れた名詞を10個挙げてもらう」というシンプルなテスト（DAT：Divergent Association Task）を実施することはできますか？
+
+
+評価を１００点満点とした場合、さきほどの評価にいくつになりますか？
+
+
+先ほど評価を出してもらったのですが、評価を出す処理をパイソンのコードで表現することはできますか？
+
+このテストを応用して、得意分野（マネージメントが得意か、コーディングが得意か、折衝が得意か、設計が得意か、コミュニケーションが得意か）のスコアを出すようなアイディアはありますか？
+
+
+ペルソナ評価パネル方式（最もおすすめ）
+対象者に「ある課題」を解かせ、そのアウトプットを複数の専門ペルソナにレビューさせてスコア化します。
+課題：簡単な仕様の機能を設計・実装し、関係者への説明文も書かせる
+評価ペルソナ例：
+- 厳格なプロジェクトマネージャー（マネジメント視点）
+- 超細部まで見るシニアエンジニア（コーディング視点）
+- 利害調整が得意な折衝屋（折衝視点）
+- アーキテクト気質の設計者（設計視点）
+- わかりやすさ至上主義のコミュニケーター（コミュニケーション視点）
+
+※ 各ペルソナには「評価基準を明確に定義」しておく（例：マネジメントなら「優先順位付け・リスク検知・メンバー配慮」など）
+
+
+
+===========================
+;実用化する際は、入力単語の「品詞チェック（名詞判定）」や「固有名詞フィルタ」などの前処理バリデーション層を組み合わせることで、完全な自動採点システムを構築できます。
+
+import itertools
+import numpy as np
+import spacy
+
+# 日本語言語モデルの読み込み
+nlp = spacy.load("ja_core_news_lg")
+
+def calculate_dat_score(words: list[str]) -> dict:
+    """
+    DAT（Divergent Association Task）のスコアを計算する関数
+    
+    :param words: 評価対象の10個の名詞リスト
+    :return: 100点満点スコアおよび詳細データ
+    """
+    # 1. 各単語をベクトル化
+    docs = [nlp(word) for word in words]
+    vectors = []
+    valid_words = []
+    
+    for doc in docs:
+        if doc.has_vector:
+            vectors.append(doc.vector)
+            valid_words.append(doc.text)
+        else:
+            raise ValueError(f"単語 '{doc.text}' のベクトルが存在しません。")
+
+    # 2. 全ペア（10C2 = 45通り）のコサイン距離を計算
+    distances = []
+    pairwise_details = []
+    
+    for (i, w1), (j, w2) in itertools.combinations(enumerate(valid_words), 2):
+        vec1 = vectors[i]
+        vec2 = vectors[j]
+        
+        # コサイン類似度: cos(θ) = (v1 · v2) / (||v1|| * ||v2||)
+        cos_sim = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+        
+        # コサイン距離: 1 - コサイン類似度
+        distance = 1.0 - cos_sim
+        distances.append(distance)
+        pairwise_details.append((w1, w2, round(float(distance), 4)))
+
+    # 3. 平均距離の算出
+    mean_distance = np.mean(distances)
+    
+    # 4. 100点満点への正規化処理
+    # 一般的な単語埋め込みでの平均距離（約0.50〜0.95）を0〜100点スケールに変換
+    min_ref, max_ref = 0.50, 0.95
+    scaled_score = (mean_distance - min_ref) / (max_ref - min_ref) * 100
+    final_score = int(np.clip(scaled_score, 0, 100))
+
+    return {
+        "score_100": final_score,
+        "mean_distance": round(float(mean_distance), 4),
+        "most_similar_pair": sorted(pairwise_details, key=lambda x: x[2])[0],   # 最も近いペア
+        "least_similar_pair": sorted(pairwise_details, key=lambda x: x[2])[-1] # 最も遠いペア
+    }
+
+# 入力例
+words_sample = [
+    "犬", "雲", "土", "机", "エンジン", 
+    "高層ビル", "ハードディスク", "ダンス", "森林", "筆箱"
+]
+
+# スコア計算
+result = calculate_dat_score(words_sample)
+print(f"DATスコア (100点満点): {result['score_100']}点")
+print(f"平均コサイン距離: {result['mean_distance']}")
+print(f"最も意味が近かったペア: {result['most_similar_pair'][:2]} (距離: {result['most_similar_pair'][2]})")
+print(f"最も意味が遠かったペア: {result['least_similar_pair'][:2]} (距離: {result['least_similar_pair'][2]})")
+
+
+
+
+
+===========================
+"""
+DAT (Divergent Association Task) スコア計算サンプル
+
+実際の研究(Olson et al., 2021, PNAS)では、大規模コーパスで学習した
+単語埋め込みモデル(GloVeなど)を使い、単語同士のベクトル間の
+コサイン類似度から「意味的な近さ」を算出しています。
+
+このスクリプトは、日本語の単語埋め込みモデルを使って
+同様の考え方でスコアを計算する簡易版です。
+
+必要なライブラリ:
+    pip install gensim numpy --break-system-packages
+
+事前学習済み日本語Word2Vecモデル(例: 白ヤギコーポレーションの
+chiVe や、東北大学の日本語Wikipediaエントリベクトルなど)を
+別途ダウンロードして使用してください。
+"""
+
+import itertools
+import numpy as np
+from gensim.models import KeyedVectors
+
+
+def load_model(model_path: str) -> KeyedVectors:
+    """事前学習済みの単語ベクトルモデルを読み込む"""
+    return KeyedVectors.load_word2vec_format(model_path, binary=True)
+
+
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    """コサイン類似度を計算(1に近いほど意味が近い、0に近いほど遠い)"""
+    dot = np.dot(vec1, vec2)
+    norm = np.linalg.norm(vec1) * np.linalg.norm(vec2)
+    if norm == 0:
+        return 0.0
+    return dot / norm
+
+
+def average_pairwise_distance(words: list[str], model: KeyedVectors) -> float:
+    """
+    全単語ペアの「意味的な距離」の平均を計算する。
+    距離 = 1 - コサイン類似度 (値が大きいほど単語同士が離れている)
+    """
+    distances = []
+    for w1, w2 in itertools.combinations(words, 2):
+        if w1 not in model or w2 not in model:
+            print(f"警告: '{w1}' または '{w2}' がモデルに存在しません")
+            continue
+        sim = cosine_similarity(model[w1], model[w2])
+        distance = 1 - sim
+        distances.append(distance)
+    return float(np.mean(distances)) if distances else 0.0
+
+
+def dat_score(words: list[str], model: KeyedVectors) -> float:
+    """
+    DATスコアを100点満点で算出する。
+    平均距離(0〜2の範囲になりうる)を0〜100にスケーリング。
+    """
+    if len(words) != 10:
+        raise ValueError("DATでは10個の単語が必要です")
+
+    avg_distance = average_pairwise_distance(words, model)
+
+    # コサイン距離は理論上 0(完全に同じ)〜2(正反対)の範囲だが、
+    # 実際の単語ベクトル空間では 0〜1.2 程度に収まることが多いため、
+    # 実データに合わせて上限を調整してスケーリングする
+    max_expected_distance = 1.2
+    score = min(avg_distance / max_expected_distance, 1.0) * 100
+    return round(score, 1)
+
+
+if __name__ == "__main__":
+    # 例: 先ほど挙げてもらった10単語
+    sample_words = [
+        "冥王星", "森林", "タワーマンション", "ライオン", "太平洋",
+        "国境", "牛乳", "エンジン", "ハードディスク", "髭剃り",
+    ]
+
+    # model = load_model("path/to/japanese_word2vec.bin")
+    # score = dat_score(sample_words, model)
+    # print(f"DATスコア: {score}点")
+
+    print("モデルファイルを用意して load_model() と dat_score() を")
+    print("有効化すると、実際のスコアが計算できます。")
+
+
+
+
+
+===========================
+words = [
+    "木星",
+    "道路",
+    "猫の耳",
+    "パイプ椅子",
+    "電子",
+    "髭剃り",
+    "焚火",
+    "ごきげんな挨拶",
+    "テレビのCM",
+    "握手"
+]
+
+# 各評価項目を100点満点で仮評価
+scores = {
+    "意味的な分散": 88,
+    "カテゴリーの多様性": 90,
+    "抽象度の多様性": 84,
+    "独自性": 82,
+    "重複・近接の少なさ": 73,
+}
+
+# 重み
+weights = {
+    "意味的な分散": 0.30,
+    "カテゴリーの多様性": 0.25,
+    "抽象度の多様性": 0.15,
+    "独自性": 0.15,
+    "重複・近接の少なさ": 0.15,
+}
+
+# 総合スコア
+total_score = sum(
+    scores[key] * weights[key]
+    for key in scores
+)
+
+print(f"総合スコア: {total_score:.1f} / 100")
+
+
+
+
+
+===========================
+
+
+
+
+
+
